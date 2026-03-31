@@ -37,36 +37,41 @@ jest.mock('@/components/Image', () => ({
 }));
 
 describe('FactionButton', () => {
-  it('preserves the current image-based sizing contract for linked tiles', () => {
+  it('keeps decorative image alt text empty for linked tiles', () => {
     render(
       <FactionButton
-        title='角色'
-        description='查看角色属性'
+        title='Characters'
+        description='Open the character list'
         href='/characters'
-        ariaLabel='查看角色属性'
+        ariaLabel='Open the character list'
         imageSrc='/images/icons/mouse-faction.png'
-        imageAlt='角色图标'
+        imageAlt=''
         preload
       />
     );
 
-    const link = screen.getByRole('link', { name: '查看角色属性' });
-    const image = screen.getByAltText('角色图标');
-    const title = screen.getByText('角色');
-    const description = screen.getByText('查看角色属性');
+    const link = screen.getByRole('link', { name: 'Open the character list' });
+    const image = link.querySelector('img');
+    const title = screen.getByText('Characters');
+    const description = screen.getByText('Open the character list');
+    const titleWrapper = title.closest('span.font-bold');
+    const contentRow = image?.closest('span.flex');
 
+    expect(image).not.toBeNull();
+    expect(image).toHaveAttribute('alt', '');
     expect(link).toHaveClass(
-      'faction-button',
       'min-w-[180px]',
       'flex-1',
       'gap-1',
       'py-3',
-      'md:gap-2'
+      'md:gap-2',
+      'hover:-translate-y-0.5'
     );
+    expect(link).not.toHaveClass('faction-button');
     expect(image).toHaveAttribute('data-preload', 'true');
-    expect(image).toHaveClass('h-9', 'w-auto', 'flex-shrink-0', 'object-contain', 'md:h-10');
-    expect(image.parentElement).toHaveClass('text-xl', 'md:text-2xl');
-    expect(title).toHaveClass('text-xl', 'font-bold', 'whitespace-nowrap', 'md:text-2xl');
+    expect(image).toHaveClass('faction-button-image');
+    expect(titleWrapper).toHaveClass('text-xl', 'font-bold', 'whitespace-nowrap', 'md:text-2xl');
+    expect(contentRow).toHaveClass('flex', 'items-center', 'gap-2', 'md:gap-3');
     expect(description).toHaveClass(
       'mt-0.5',
       'text-xs',
@@ -82,19 +87,20 @@ describe('FactionButton', () => {
 
     render(
       <FactionButton
-        emoji='🐭'
-        title='彩蛋'
-        description='打开彩蛋面板'
+        emoji='egg'
+        title='Easter Egg'
+        description='Open the easter egg panel'
         onClick={onClick}
-        ariaLabel='打开彩蛋面板'
+        ariaLabel='Open the easter egg panel'
       />
     );
 
-    const button = screen.getByRole('button', { name: '打开彩蛋面板' });
+    const button = screen.getByRole('button', { name: 'Open the easter egg panel' });
     fireEvent.click(button);
 
-    expect(button).toHaveClass('faction-button', 'min-w-[180px]', 'flex-1', 'py-3');
-    expect(screen.getByText('🐭')).toHaveClass('text-xl', 'md:text-2xl');
+    expect(button).toHaveClass('min-w-[180px]', 'flex-1', 'py-3', 'hover:-translate-y-0.5');
+    expect(button).not.toHaveClass('faction-button');
+    expect(screen.getByText('egg')).toHaveClass('text-xl', 'md:text-2xl');
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

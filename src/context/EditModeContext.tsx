@@ -22,6 +22,7 @@ import {
   getActionsStorageKey,
   invertActionEntry,
   readActionHistory,
+  splitActionHistoryByEntity,
   squashActions,
   subscribers,
   withRecordingSuppressed,
@@ -124,11 +125,15 @@ export const entityRegistry = new Map<string, Record<string, unknown>>([
 function syncEntityToLocalStorage(entityType: string, entity: Record<string, unknown>): () => void {
   const actionsStorageKey = getActionsStorageKey(entityType);
 
-  return subscribe(entity, (ops) => {
-    const actions = actionsFromValtioOps(ops);
-    if (actions.length === 0) return;
-    appendActionHistoryEntry(actionsStorageKey, actions.length === 1 ? actions[0]! : actions);
-  });
+  return subscribe(
+    entity,
+    (ops) => {
+      const actions = actionsFromValtioOps(ops);
+      if (actions.length === 0) return;
+      appendActionHistoryEntry(actionsStorageKey, actions.length === 1 ? actions[0]! : actions);
+    },
+    true
+  );
 }
 
 function setupEntitySubscribers(): void {
@@ -366,61 +371,6 @@ export const useEditMode = () => {
   return context;
 };
 
-function normalizeActionEntry(actions: Action[]): ActionHistoryEntry {
-  return actions.length === 1 ? actions[0]! : actions;
-}
-
-function matchesEntityAction(action: Action, entityId: string): boolean {
-  if (!entityId) return true;
-  return action.path === entityId || action.path.startsWith(`${entityId}.`);
-}
-
-function splitActionEntryByEntity(
-  entry: ActionHistoryEntry,
-  entityId: string
-): { matching: ActionHistoryEntry | null; remaining: ActionHistoryEntry | null } {
-  if (Array.isArray(entry)) {
-    const matching: Action[] = [];
-    const remaining: Action[] = [];
-
-    entry.forEach((action) => {
-      if (matchesEntityAction(action, entityId)) {
-        matching.push(action);
-      } else {
-        remaining.push(action);
-      }
-    });
-
-    return {
-      matching: matching.length > 0 ? normalizeActionEntry(matching) : null,
-      remaining: remaining.length > 0 ? normalizeActionEntry(remaining) : null,
-    };
-  }
-
-  if (matchesEntityAction(entry, entityId)) {
-    return { matching: entry, remaining: null };
-  }
-
-  return { matching: null, remaining: entry };
-}
-
-function splitActionHistoryByEntity(history: ActionHistoryEntry[], entityId: string) {
-  const matching: ActionHistoryEntry[] = [];
-  const remaining: ActionHistoryEntry[] = [];
-
-  history.forEach((entry) => {
-    const { matching: matchingEntry, remaining: remainingEntry } = splitActionEntryByEntity(
-      entry,
-      entityId
-    );
-
-    if (matchingEntry) matching.push(matchingEntry);
-    if (remainingEntry) remaining.push(remainingEntry);
-  });
-
-  return { matching, remaining };
-}
-
 // ============================================================================
 // Page-level edit mode hook for pages that support editing
 // ============================================================================
@@ -437,10 +387,157 @@ interface PageEditModeResult {
   isDirty: boolean;
   isPublishing: boolean;
   draftInfo: { actionCount: number } | null;
-  draftsSummary: { entityType: string; entityLabel: string; count: number }[];
+  draftsSummary: DraftSummaryItem[];
   discardChanges: (options?: { showToast?: boolean; suppressSync?: boolean }) => void;
   publishChanges: (message?: string) => Promise<boolean>;
   getActionCount: () => number;
+}
+
+type DraftSummaryItem = {
+  entityType: PublishableEntityType;
+  entityLabel: string;
+  entityId: string;
+  itemLabel: string;
+  count: number;
+  factionId?: 'cat' | 'mouse';
+};
+
+type DraftPathParts = {
+  entityId: string;
+  factionId?: 'cat' | 'mouse';
+};
+
+function normalizeActionEntryToList(entry: ActionHistoryEntry): Action[] {
+  return Array.isArray(entry) ? entry : [entry];
+}
+
+function parseDraftPath(entityType: PublishableEntityType, path: string): DraftPathParts | null {
+  const parts = path.split('.').filter(Boolean);
+  if (parts.length === 0) return null;
+
+  if (entityType === 'specialSkills') {
+    const factionPart = parts[0];
+    const skillId = parts[1];
+    if (!skillId) return null;
+
+    if (factionPart === 'cat' || factionPart === 'mouse') {
+      return { entityId: skillId, factionId: factionPart };
+    }
+
+    return { entityId: skillId };
+  }
+
+  return { entityId: parts[0]! };
+}
+
+function parseDraftAction(
+  entityType: PublishableEntityType,
+  action: Action
+): DraftPathParts | null {
+  if (action.sourceEntityId) {
+    return { entityId: action.sourceEntityId };
+  }
+
+  return parseDraftPath(entityType, action.path);
+}
+
+function resolveDraftItemLabel(
+  entityType: PublishableEntityType,
+  entityId: string,
+  factionId?: 'cat' | 'mouse'
+): string {
+  if (entityType === 'specialSkills') {
+    const specialSkillRoot = entityRegistry.get(entityType) as
+      | {
+          cat?: Record<string, unknown>;
+          mouse?: Record<string, unknown>;
+        }
+      | undefined;
+
+    const fromFaction = factionId ? specialSkillRoot?.[factionId]?.[entityId] : undefined;
+    const fallback =
+      fromFaction ?? specialSkillRoot?.cat?.[entityId] ?? specialSkillRoot?.mouse?.[entityId];
+    const skill = fallback as { name?: string; id?: string } | undefined;
+    return skill?.name ?? skill?.id ?? entityId;
+  }
+
+  const store = entityRegistry.get(entityType) as Record<string, unknown> | undefined;
+  const item = store?.[entityId] as { name?: string; id?: string } | undefined;
+  return item?.name ?? item?.id ?? entityId;
+}
+
+function buildDraftSummaryItemsForType(
+  entityType: PublishableEntityType,
+  history: ActionHistoryEntry[]
+): DraftSummaryItem[] {
+  const counters = new Map<
+    string,
+    {
+      entityId: string;
+      count: number;
+      factionId?: 'cat' | 'mouse';
+    }
+  >();
+
+  history.forEach((entry) => {
+    normalizeActionEntryToList(entry).forEach((action) => {
+      const pathParts = parseDraftAction(entityType, action);
+      if (!pathParts) return;
+
+      const itemKey = `${pathParts.factionId ?? ''}:${pathParts.entityId}`;
+      const current = counters.get(itemKey);
+      if (current) {
+        current.count += 1;
+        return;
+      }
+
+      const nextCounter: {
+        entityId: string;
+        count: number;
+        factionId?: 'cat' | 'mouse';
+      } = {
+        entityId: pathParts.entityId,
+        count: 1,
+      };
+
+      if (pathParts.factionId) {
+        nextCounter.factionId = pathParts.factionId;
+      }
+
+      counters.set(itemKey, nextCounter);
+    });
+  });
+
+  return Array.from(counters.values()).map((counter) => {
+    const summary: DraftSummaryItem = {
+      entityType,
+      entityLabel: formatEntityLabel(entityType),
+      entityId: counter.entityId,
+      itemLabel: resolveDraftItemLabel(entityType, counter.entityId, counter.factionId),
+      count: counter.count,
+    };
+
+    if (counter.factionId) {
+      summary.factionId = counter.factionId;
+    }
+
+    return summary;
+  });
+}
+
+function sortDraftSummaryItems(items: DraftSummaryItem[]): DraftSummaryItem[] {
+  return items.sort((a, b) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+
+    const typeCompare = a.entityLabel.localeCompare(b.entityLabel, 'zh-CN');
+    if (typeCompare !== 0) {
+      return typeCompare;
+    }
+
+    return a.itemLabel.localeCompare(b.itemLabel, 'zh-CN');
+  });
 }
 
 /**
@@ -466,9 +563,13 @@ export function usePageEditMode(options: PageEditModeOptions): PageEditModeResul
     const entity = entityRegistry.get(entityType);
     if (!entity) return undefined;
 
-    const unsubscribe = subscribe(entity, () => {
-      setActionCountTrigger((prev) => prev + 1);
-    });
+    const unsubscribe = subscribe(
+      entity,
+      () => {
+        setActionCountTrigger((prev) => prev + 1);
+      },
+      true
+    );
 
     return unsubscribe;
   }, [isEditMode, entityType]);
@@ -506,16 +607,13 @@ export function usePageEditMode(options: PageEditModeOptions): PageEditModeResul
     if (!isEditMode) return;
     if (typeof window === 'undefined') return;
 
-    const summary = PUBLISHABLE_ENTITY_TYPES.map((type) => {
-      const storageKey = getActionsStorageKey(type);
-      const history = readActionHistory(storageKey);
-      return { entityType: type, count: history.length };
-    })
-      .filter((item) => item.count > 0)
-      .map((item) => ({
-        ...item,
-        entityLabel: formatEntityLabel(item.entityType),
-      }));
+    const summary = sortDraftSummaryItems(
+      PUBLISHABLE_ENTITY_TYPES.flatMap((type) => {
+        const storageKey = getActionsStorageKey(type);
+        const history = readActionHistory(storageKey);
+        return buildDraftSummaryItemsForType(type, history);
+      })
+    );
 
     setDraftsSummary(summary);
   }, [debouncedActionCount, isEditMode]);

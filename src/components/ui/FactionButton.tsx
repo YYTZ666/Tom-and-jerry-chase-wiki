@@ -32,25 +32,31 @@ function FactionButton({
   const icon = imageSrc ? (
     <Image
       src={imageSrc}
-      alt={imageAlt || title || ''}
+      alt={imageAlt ?? title ?? ''}
       width={36}
       height={36}
-      className='h-9 w-auto flex-shrink-0 object-contain md:h-10'
+      className='faction-button-image'
       preload={preload}
     />
   ) : emoji ? (
     <span className='text-xl md:text-2xl'>{emoji}</span>
   ) : null;
 
+  const titleContent = (
+    <span className='flex items-center gap-2 md:gap-3'>
+      {icon}
+      {title != undefined ? <span>{title}</span> : null}
+    </span>
+  );
+
   const tileProps = {
-    title: title ?? '',
+    title: titleContent,
     description,
-    icon,
     ariaLabel,
     layout: 'stacked' as const,
-    className: `faction-button flex-1 px-0 py-3 gap-1 md:gap-2${className ? ` ${className}` : ''}`,
-    contentRowClassName: 'gap-2 md:gap-3',
-    iconWrapperClassName: 'text-xl md:text-2xl',
+    className: `flex-1 gap-1 px-0 py-3 hover:-translate-y-0.5 hover:shadow-lg md:gap-2${
+      className ? ` ${className}` : ''
+    }`,
     titleClassName: 'text-xl md:text-2xl',
     descriptionClassName: 'mt-0.5 text-xs md:mt-1 md:text-sm',
     ...(href ? { href } : {}),

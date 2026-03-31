@@ -5,11 +5,13 @@ import clsx from 'clsx';
 import { useSnapshot } from 'valtio';
 
 import { AssetManager } from '@/lib/assetManager';
+import { withActionContext } from '@/lib/edit/diffUtils';
 import { setNestedProperty } from '@/lib/editUtils';
 import { useNavigation } from '@/hooks/useNavigation';
 import { useAppContext } from '@/context/AppContext';
 import { useEditMode } from '@/context/EditModeContext';
 import { CharacterRelationItem, type FactionId, type TraitRelationKind } from '@/data/types';
+import { getCanonicalCharacterRelationStorageLocation } from '@/features/characters/utils/characterRelationCanonicalization';
 import { getCharacterRelation } from '@/features/characters/utils/relations';
 import { CharacterSelector } from '@/components/ui/CharacterSelector';
 import { editable } from '@/components/ui/editable';
@@ -44,63 +46,35 @@ type RelationThemeClasses = {
   itemBg: string;
   interactive: string;
   toggle: string;
-  badge: string;
 };
 
 const e = editable('characters');
 
-const relationKinds: TraitRelationKind[] = [
-  'counters',
-  'counteredBy',
-  'counterEachOther',
-  'collaborators',
-  'countersKnowledgeCards',
-  'counteredByKnowledgeCards',
-  'countersSpecialSkills',
-  'counteredBySpecialSkills',
-  'advantageMaps',
-  'advantageModes',
-  'disadvantageMaps',
-  'disadvantageModes',
-];
-
 const getEditableCharacterRelations = (
-  characterId: string,
-  character?: Partial<Record<TraitRelationKind, CharacterRelationItem[]>>
-): Record<TraitRelationKind, CharacterRelationItem[]> => {
-  const characterRecord = character ?? characters[characterId];
-  const fromRelationIndex = getCharacterRelation(characterId);
-  if (!characterRecord) {
-    return fromRelationIndex;
-  }
+  characterId: string
+): Record<TraitRelationKind, CharacterRelationItem[]> => getCharacterRelation(characterId);
 
-  const next = { ...fromRelationIndex } as Record<TraitRelationKind, CharacterRelationItem[]>;
+const getRelationStorageLocation = (characterId: string, kind: TraitRelationKind, itemId: string) =>
+  getCanonicalCharacterRelationStorageLocation(characterId, kind, itemId);
 
-  relationKinds.forEach((kind) => {
-    const stored = (characterRecord as Partial<Record<TraitRelationKind, CharacterRelationItem[]>>)[
-      kind
-    ];
-    if (Array.isArray(stored)) {
-      next[kind] = stored.map((item) => ({
-        id: item.id,
-        description: item.description ?? '',
-        isMinor: !!item.isMinor,
-      }));
-    }
-  });
-
-  return next;
+const getStoredRelationItems = (characterId: string, kind: TraitRelationKind, itemId: string) => {
+  const storageLocation = getRelationStorageLocation(characterId, kind, itemId);
+  if (!storageLocation) return [];
+  return getEditableCharacterRelations(storageLocation.ownerId)[storageLocation.kind] ?? [];
 };
 
 const updateRelationItems = (
-  characterId: string,
+  sourceCharacterId: string,
+  storageOwnerId: string,
   kind: TraitRelationKind,
   items: CharacterRelationItem[]
 ) => {
-  setNestedProperty(characters, `${characterId}.${kind}`, items);
-  if (characters[characterId]) {
-    (characters[characterId] as Record<string, unknown>)[kind] = items;
-  }
+  withActionContext({ sourceEntityId: sourceCharacterId }, () => {
+    setNestedProperty(characters, `${storageOwnerId}.${kind}`, items);
+    if (characters[storageOwnerId]) {
+      (characters[storageOwnerId] as Record<string, unknown>)[kind] = items;
+    }
+  });
 };
 
 const updateRelationItem = (
@@ -109,11 +83,14 @@ const updateRelationItem = (
   itemId: string,
   updater: (item: CharacterRelationItem) => CharacterRelationItem
 ) => {
-  const current = getEditableCharacterRelations(characterId)[kind] ?? [];
+  const storageLocation = getRelationStorageLocation(characterId, kind, itemId);
+  if (!storageLocation) return;
+  const current = getStoredRelationItems(characterId, kind, itemId);
   updateRelationItems(
     characterId,
-    kind,
-    current.map((item) => (item.id === itemId ? updater(item) : item))
+    storageLocation.ownerId,
+    storageLocation.kind,
+    current.map((item) => (item.id === storageLocation.targetId ? updater(item) : item))
   );
 };
 
@@ -128,9 +105,14 @@ const addRelationItem = (
   kind: TraitRelationKind,
   item: CharacterRelationItem
 ) => {
-  const current = getEditableCharacterRelations(characterId)[kind] ?? [];
-  if (current.some((existing) => existing.id === item.id)) return;
-  updateRelationItems(characterId, kind, [...current, item]);
+  const storageLocation = getRelationStorageLocation(characterId, kind, item.id);
+  if (!storageLocation) return;
+  const current = getStoredRelationItems(characterId, kind, item.id);
+  if (current.some((existing) => existing.id === storageLocation.targetId)) return;
+  updateRelationItems(characterId, storageLocation.ownerId, storageLocation.kind, [
+    ...current,
+    createRelationItem(storageLocation.targetId),
+  ]);
 };
 
 const updateRelationDescription = (
@@ -154,11 +136,14 @@ const toggleRelationMinor = (characterId: string, kind: TraitRelationKind, itemI
 };
 
 const removeRelationItem = (characterId: string, kind: TraitRelationKind, itemId: string) => {
-  const current = getEditableCharacterRelations(characterId)[kind] ?? [];
+  const storageLocation = getRelationStorageLocation(characterId, kind, itemId);
+  if (!storageLocation) return;
+  const current = getStoredRelationItems(characterId, kind, itemId);
   updateRelationItems(
     characterId,
-    kind,
-    current.filter((item) => item.id !== itemId)
+    storageLocation.ownerId,
+    storageLocation.kind,
+    current.filter((item) => item.id !== storageLocation.targetId)
   );
 };
 
@@ -171,8 +156,6 @@ const relationThemeClasses: Record<RelationTheme, RelationThemeClasses> = {
       'cursor-pointer transition-shadow hover:shadow-lg hover:bg-blue-100 dark:hover:bg-blue-800/40 focus:outline-none focus:ring-2 focus:ring-blue-400 active:scale-95',
     toggle:
       'text-[10px] px-1 py-0.5 bg-blue-200 dark:bg-blue-700 text-blue-800 dark:text-blue-200 rounded-full hover:bg-blue-300 dark:hover:bg-blue-600 cursor-pointer',
-    badge:
-      'text-[10px] px-1 py-0.5 bg-blue-200 dark:bg-blue-700 text-blue-800 dark:text-blue-200 rounded-full',
   },
   amber: {
     headerText: 'text-amber-700 dark:text-amber-300',
@@ -182,8 +165,6 @@ const relationThemeClasses: Record<RelationTheme, RelationThemeClasses> = {
       'cursor-pointer transition-shadow hover:shadow-lg hover:bg-amber-100 dark:hover:bg-amber-800/40 focus:outline-none focus:ring-2 focus:ring-amber-400 active:scale-95',
     toggle:
       'text-[10px] px-1 py-0.5 bg-amber-200 dark:bg-amber-700 text-amber-800 dark:text-amber-200 rounded-full hover:bg-amber-300 dark:hover:bg-amber-600 cursor-pointer',
-    badge:
-      'text-[10px] px-1 py-0.5 bg-amber-200 dark:bg-amber-700 text-amber-800 dark:text-amber-200 rounded-full',
   },
   red: {
     headerText: 'text-red-700 dark:text-red-300',
@@ -193,8 +174,6 @@ const relationThemeClasses: Record<RelationTheme, RelationThemeClasses> = {
       'cursor-pointer transition-shadow hover:shadow-lg hover:bg-red-100 dark:hover:bg-red-800/40 focus:outline-none focus:ring-2 focus:ring-red-400 active:scale-95',
     toggle:
       'text-[10px] px-1 py-0.5 bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-200 rounded-full hover:bg-red-300 dark:hover:bg-red-600 cursor-pointer',
-    badge:
-      'text-[10px] px-1 py-0.5 bg-red-200 dark:bg-red-700 text-red-800 dark:text-red-200 rounded-full',
   },
   green: {
     headerText: 'text-green-700 dark:text-green-300',
@@ -204,8 +183,6 @@ const relationThemeClasses: Record<RelationTheme, RelationThemeClasses> = {
       'cursor-pointer transition-shadow hover:shadow-lg hover:bg-green-100 dark:hover:bg-green-800/40 focus:outline-none focus:ring-2 focus:ring-green-400 active:scale-95',
     toggle:
       'text-[10px] px-1 py-0.5 bg-green-200 dark:bg-green-700 text-green-800 dark:text-green-200 rounded-full hover:bg-green-300 dark:hover:bg-green-600 cursor-pointer',
-    badge:
-      'text-[10px] px-1 py-0.5 bg-green-200 dark:bg-green-700 text-green-800 dark:text-green-200 rounded-full',
   },
   purple: {
     headerText: 'text-purple-700 dark:text-purple-300',
@@ -215,8 +192,6 @@ const relationThemeClasses: Record<RelationTheme, RelationThemeClasses> = {
       'cursor-pointer transition-shadow hover:shadow-lg hover:bg-purple-100 dark:hover:bg-purple-800/40 focus:outline-none focus:ring-2 focus:ring-purple-400 active:scale-95',
     toggle:
       'text-[10px] px-1 py-0.5 bg-purple-200 dark:bg-purple-700 text-purple-800 dark:text-purple-200 rounded-full hover:bg-purple-300 dark:hover:bg-purple-600 cursor-pointer',
-    badge:
-      'text-[10px] px-1 py-0.5 bg-purple-200 dark:bg-purple-700 text-purple-800 dark:text-purple-200 rounded-full',
   },
   orange: {
     headerText: 'text-orange-700 dark:text-orange-300',
@@ -226,10 +201,14 @@ const relationThemeClasses: Record<RelationTheme, RelationThemeClasses> = {
       'cursor-pointer transition-shadow hover:shadow-lg hover:bg-orange-100 dark:hover:bg-orange-800/40 focus:outline-none focus:ring-2 focus:ring-orange-400 active:scale-95',
     toggle:
       'text-[10px] px-1 py-0.5 bg-orange-200 dark:bg-orange-700 text-orange-800 dark:text-orange-200 rounded-full hover:bg-orange-300 dark:hover:bg-orange-600 cursor-pointer',
-    badge:
-      'text-[10px] px-1 py-0.5 bg-orange-200 dark:bg-orange-700 text-orange-800 dark:text-orange-200 rounded-full',
   },
 };
+
+const relationItemNameClassName = 'text-sm text-gray-700 dark:text-gray-300';
+const relationItemDescriptionClassName = 'mt-1 text-left text-xs text-gray-500 dark:text-gray-400';
+const relationItemTextareaClassName =
+  'mt-1 w-full resize-none rounded-md border border-gray-200 bg-white/60 px-2 py-1 text-left text-xs text-gray-600 focus:border-blue-400 focus:ring-1 focus:ring-blue-300 focus:outline-none dark:border-gray-600 dark:bg-slate-800/60 dark:text-gray-300';
+const minorLabelClassName = 'text-[11px] text-gray-500 dark:text-gray-400';
 
 type RelationDisplayBase = {
   key: string;
@@ -543,6 +522,8 @@ const RelationSection: React.FC<RelationSectionProps> = ({
 
   const renderCharacterItem = (item: CharacterDisplayItem) => {
     const ariaLabel = item.getAriaLabel(canEdit);
+    const canEditItemDescription =
+      canEdit && canEditDescription && item.isEditable && !!item.onUpdateDescription;
     const handleClick = () => {
       if (!canEdit) {
         item.onNavigate();
@@ -577,7 +558,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
         />
         <div className='flex flex-1 flex-col'>
           <div className='flex items-center gap-1'>
-            <span className='text-xs text-gray-700 dark:text-gray-300'>{item.id}</span>
+            <span className={relationItemNameClassName}>{item.id}</span>
             {canEdit && item.isEditable && item.onToggleMinor ? (
               <button
                 type='button'
@@ -588,7 +569,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 {item.isMinor ? '次要' : '主要'}
               </button>
             ) : (
-              !canEdit && item.isMinor && <span className={themeClasses.badge}>次要</span>
+              !canEdit && item.isMinor && <span className={minorLabelClassName}>(次要)</span>
             )}
             {canEdit && item.onRemove && (
               <button
@@ -601,12 +582,12 @@ const RelationSection: React.FC<RelationSectionProps> = ({
               </button>
             )}
           </div>
-          {canEdit && canEditDescription ? (
+          {canEditItemDescription ? (
             item.descriptionPath ? (
               <e.span
                 path={`${item.descriptionPath}.description`}
                 initialValue={item.description}
-                className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'
+                className={relationItemDescriptionClassName}
                 onSave={(value) => item.onUpdateDescription?.(value)}
               />
             ) : (
@@ -614,15 +595,13 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 rows={2}
                 defaultValue={item.description}
                 onBlur={(event) => item.onUpdateDescription?.(event.currentTarget.value)}
-                className='mt-1 w-full resize-none rounded-md border border-gray-200 bg-white/60 px-2 py-1 text-left text-[11px] text-gray-600 focus:border-blue-400 focus:ring-1 focus:ring-blue-300 focus:outline-none dark:border-gray-600 dark:bg-slate-800/60 dark:text-gray-300'
+                className={relationItemTextareaClassName}
                 placeholder='补充关系描述'
               />
             )
           ) : (
             item.description && (
-              <span className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'>
-                {item.description}
-              </span>
+              <span className={relationItemDescriptionClassName}>{item.description}</span>
             )
           )}
         </div>
@@ -631,6 +610,8 @@ const RelationSection: React.FC<RelationSectionProps> = ({
   };
 
   const renderKnowledgeCardItem = (item: KnowledgeCardDisplayItem) => {
+    const canEditItemDescription =
+      canEdit && canEditDescription && item.isEditable && !!item.onUpdateDescription;
     const handleClick = () => {
       if (!canEdit) {
         item.onNavigate();
@@ -660,7 +641,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
         <Image src={item.imageUrl} alt={item.id} width={32} height={40} className='mx-1 h-10 w-8' />
         <div className='flex flex-1 flex-col'>
           <div className='flex items-center gap-1'>
-            <span className='text-xs text-gray-700 dark:text-gray-300'>{item.id}</span>
+            <span className={relationItemNameClassName}>{item.id}</span>
             {canEdit && item.onToggleMinor ? (
               <button
                 type='button'
@@ -671,7 +652,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 {item.isMinor ? '次要' : '主要'}
               </button>
             ) : (
-              item.isMinor && <span className={themeClasses.badge}>次要</span>
+              item.isMinor && <span className={minorLabelClassName}>(次要)</span>
             )}
             {canEdit && item.onRemove && (
               <button
@@ -684,12 +665,12 @@ const RelationSection: React.FC<RelationSectionProps> = ({
               </button>
             )}
           </div>
-          {canEdit && canEditDescription ? (
+          {canEditItemDescription ? (
             item.descriptionPath ? (
               <e.span
                 path={`${item.descriptionPath}.description`}
                 initialValue={item.description}
-                className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'
+                className={relationItemDescriptionClassName}
                 onSave={(value) => item.onUpdateDescription?.(value)}
               />
             ) : (
@@ -697,15 +678,13 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 rows={2}
                 defaultValue={item.description}
                 onBlur={(event) => item.onUpdateDescription?.(event.currentTarget.value)}
-                className='mt-1 w-full resize-none rounded-md border border-gray-200 bg-white/60 px-2 py-1 text-left text-[11px] text-gray-600 focus:border-blue-400 focus:ring-1 focus:ring-blue-300 focus:outline-none dark:border-gray-600 dark:bg-slate-800/60 dark:text-gray-300'
+                className={relationItemTextareaClassName}
                 placeholder='补充关系描述'
               />
             )
           ) : (
             item.description && (
-              <span className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'>
-                {item.description}
-              </span>
+              <span className={relationItemDescriptionClassName}>{item.description}</span>
             )
           )}
         </div>
@@ -714,6 +693,8 @@ const RelationSection: React.FC<RelationSectionProps> = ({
   };
 
   const renderSpecialSkillItem = (item: SpecialSkillDisplayItem) => {
+    const canEditItemDescription =
+      canEdit && canEditDescription && item.isEditable && !!item.onUpdateDescription;
     const handleClick = () => {
       if (!canEdit) {
         item.onNavigate();
@@ -755,7 +736,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
         )}
         <div className='flex flex-1 flex-col'>
           <div className='flex items-center gap-1'>
-            <span className='text-xs text-gray-700 dark:text-gray-300'>{item.id}</span>
+            <span className={relationItemNameClassName}>{item.id}</span>
             {canEdit && item.onToggleMinor ? (
               <button
                 type='button'
@@ -766,7 +747,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 {item.isMinor ? '次要' : '主要'}
               </button>
             ) : (
-              item.isMinor && <span className={themeClasses.badge}>次要</span>
+              item.isMinor && <span className={minorLabelClassName}>(次要)</span>
             )}
             {canEdit && item.onRemove && (
               <button
@@ -779,12 +760,12 @@ const RelationSection: React.FC<RelationSectionProps> = ({
               </button>
             )}
           </div>
-          {canEdit && canEditDescription ? (
+          {canEditItemDescription ? (
             item.descriptionPath ? (
               <e.span
                 path={`${item.descriptionPath}.description`}
                 initialValue={item.description}
-                className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'
+                className={relationItemDescriptionClassName}
                 onSave={(value) => item.onUpdateDescription?.(value)}
               />
             ) : (
@@ -792,15 +773,13 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 rows={2}
                 defaultValue={item.description}
                 onBlur={(event) => item.onUpdateDescription?.(event.currentTarget.value)}
-                className='mt-1 w-full resize-none rounded-md border border-gray-200 bg-white/60 px-2 py-1 text-left text-[11px] text-gray-600 focus:border-blue-400 focus:ring-1 focus:ring-blue-300 focus:outline-none dark:border-gray-600 dark:bg-slate-800/60 dark:text-gray-300'
+                className={relationItemTextareaClassName}
                 placeholder='补充关系描述'
               />
             )
           ) : (
             item.description && (
-              <span className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'>
-                {item.description}
-              </span>
+              <span className={relationItemDescriptionClassName}>{item.description}</span>
             )
           )}
         </div>
@@ -809,6 +788,8 @@ const RelationSection: React.FC<RelationSectionProps> = ({
   };
 
   const renderMapItem = (item: MapDisplayItem) => {
+    const canEditItemDescription =
+      canEdit && canEditDescription && item.isEditable && !!item.onUpdateDescription;
     const handleClick = () => {
       if (!canEdit) {
         item.onNavigate();
@@ -850,7 +831,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
         )}
         <div className='flex flex-1 flex-col'>
           <div className='flex items-center gap-1'>
-            <span className='text-xs text-gray-700 dark:text-gray-300'>{item.id}</span>
+            <span className={relationItemNameClassName}>{item.id}</span>
             {canEdit && item.onToggleMinor ? (
               <button
                 type='button'
@@ -861,7 +842,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 {item.isMinor ? '次要' : '主要'}
               </button>
             ) : (
-              item.isMinor && <span className={themeClasses.badge}>次要</span>
+              item.isMinor && <span className={minorLabelClassName}>(次要)</span>
             )}
             {canEdit && item.onRemove && (
               <button
@@ -874,12 +855,12 @@ const RelationSection: React.FC<RelationSectionProps> = ({
               </button>
             )}
           </div>
-          {canEdit && canEditDescription ? (
+          {canEditItemDescription ? (
             item.descriptionPath ? (
               <e.span
                 path={`${item.descriptionPath}.description`}
                 initialValue={item.description}
-                className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'
+                className={relationItemDescriptionClassName}
                 onSave={(value) => item.onUpdateDescription?.(value)}
               />
             ) : (
@@ -887,15 +868,13 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 rows={2}
                 defaultValue={item.description}
                 onBlur={(event) => item.onUpdateDescription?.(event.currentTarget.value)}
-                className='mt-1 w-full resize-none rounded-md border border-gray-200 bg-white/60 px-2 py-1 text-left text-[11px] text-gray-600 focus:border-blue-400 focus:ring-1 focus:ring-blue-300 focus:outline-none dark:border-gray-600 dark:bg-slate-800/60 dark:text-gray-300'
+                className={relationItemTextareaClassName}
                 placeholder='补充关系描述'
               />
             )
           ) : (
             item.description && (
-              <span className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'>
-                {item.description}
-              </span>
+              <span className={relationItemDescriptionClassName}>{item.description}</span>
             )
           )}
         </div>
@@ -904,6 +883,8 @@ const RelationSection: React.FC<RelationSectionProps> = ({
   };
 
   const renderModeItem = (item: ModeDisplayItem) => {
+    const canEditItemDescription =
+      canEdit && canEditDescription && item.isEditable && !!item.onUpdateDescription;
     const handleClick = () => {
       if (!canEdit) {
         item.onNavigate();
@@ -945,7 +926,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
         )}
         <div className='flex flex-1 flex-col'>
           <div className='flex items-center gap-1'>
-            <span className='text-xs text-gray-700 dark:text-gray-300'>{item.id}</span>
+            <span className={relationItemNameClassName}>{item.id}</span>
             {canEdit && item.onToggleMinor ? (
               <button
                 type='button'
@@ -956,7 +937,7 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 {item.isMinor ? '次要' : '主要'}
               </button>
             ) : (
-              item.isMinor && <span className={themeClasses.badge}>次要</span>
+              item.isMinor && <span className={minorLabelClassName}>(次要)</span>
             )}
             {canEdit && item.onRemove && (
               <button
@@ -969,12 +950,12 @@ const RelationSection: React.FC<RelationSectionProps> = ({
               </button>
             )}
           </div>
-          {canEdit && canEditDescription ? (
+          {canEditItemDescription ? (
             item.descriptionPath ? (
               <e.span
                 path={`${item.descriptionPath}.description`}
                 initialValue={item.description}
-                className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'
+                className={relationItemDescriptionClassName}
                 onSave={(value) => item.onUpdateDescription?.(value)}
               />
             ) : (
@@ -982,15 +963,13 @@ const RelationSection: React.FC<RelationSectionProps> = ({
                 rows={2}
                 defaultValue={item.description}
                 onBlur={(event) => item.onUpdateDescription?.(event.currentTarget.value)}
-                className='mt-1 w-full resize-none rounded-md border border-gray-200 bg-white/60 px-2 py-1 text-left text-[11px] text-gray-600 focus:border-blue-400 focus:ring-1 focus:ring-blue-300 focus:outline-none dark:border-gray-600 dark:bg-slate-800/60 dark:text-gray-300'
+                className={relationItemTextareaClassName}
                 placeholder='补充关系描述'
               />
             )
           ) : (
             item.description && (
-              <span className='mt-1 text-left text-[11px] text-gray-500 dark:text-gray-400'>
-                {item.description}
-              </span>
+              <span className={relationItemDescriptionClassName}>{item.description}</span>
             )
           )}
         </div>
@@ -1002,7 +981,10 @@ const RelationSection: React.FC<RelationSectionProps> = ({
     <div>
       <div className='flex items-center justify-between'>
         <span
-          className={clsx('flex items-center gap-1 text-sm font-semibold', themeClasses.headerText)}
+          className={clsx(
+            'flex items-center gap-1 text-base font-semibold',
+            themeClasses.headerText
+          )}
         >
           <span
             className={clsx(
@@ -1050,16 +1032,13 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
   const mapsSnapshot = useSnapshot(mapsEdit);
   const modesSnapshot = useSnapshot(modesEdit);
   const specialSkillsSnapshot = useSnapshot(specialSkillsEdit);
+  useSnapshot(characters);
   const getImageUrl = React.useCallback(
     (targetId: string) =>
       AssetManager.getCharacterImageUrl(targetId, factionId === 'cat' ? 'mouse' : 'cat'),
     [factionId]
   );
-  const characterSnapshot = useSnapshot(characters[id]!);
-  const char = getEditableCharacterRelations(
-    id,
-    characterSnapshot as Partial<Record<TraitRelationKind, CharacterRelationItem[]>>
-  );
+  const char = getEditableCharacterRelations(id);
   const { handleSelectCharacter } = useAppContext();
   const { navigate } = useNavigation();
 
@@ -1077,7 +1056,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'counters',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.counters.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'counters', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'counters', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1090,7 +1068,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'countersKnowledgeCards',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.countersKnowledgeCards.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'countersKnowledgeCards', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'countersKnowledgeCards', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1106,7 +1083,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'countersSpecialSkills',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.countersSpecialSkills.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'countersSpecialSkills', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'countersSpecialSkills', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1127,7 +1103,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'counterEachOther',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.counterEachOther.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'counterEachOther', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'counterEachOther', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1148,7 +1123,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'counteredBy',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.counteredBy.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'counteredBy', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'counteredBy', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1161,7 +1135,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'counteredByKnowledgeCards',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.counteredByKnowledgeCards.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'counteredByKnowledgeCards', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'counteredByKnowledgeCards', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1177,7 +1150,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'counteredBySpecialSkills',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.counteredBySpecialSkills.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'counteredBySpecialSkills', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'counteredBySpecialSkills', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1198,7 +1170,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'collaborators',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.collaborators.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'collaborators', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'collaborators', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1215,7 +1186,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'advantageMaps',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.advantageMaps.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'advantageMaps', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'advantageMaps', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1232,7 +1202,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'advantageModes',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.advantageModes.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'advantageModes', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'advantageModes', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1249,7 +1218,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'disadvantageMaps',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.disadvantageMaps.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'disadvantageMaps', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'disadvantageMaps', itemId),
         onUpdateDescription: (itemId, description) =>
@@ -1266,7 +1234,6 @@ const CharacterRelationDisplay: React.FC<Props> = ({ id, factionId }) => {
       {
         relationKind: 'disadvantageModes',
         isEditable: true,
-        getDescriptionPath: (itemId) => `${id}.disadvantageModes.${itemId}`,
         onToggleMinor: (itemId) => toggleRelationMinor(id, 'disadvantageModes', itemId),
         onRemove: (itemId) => removeRelationItem(id, 'disadvantageModes', itemId),
         onUpdateDescription: (itemId, description) =>

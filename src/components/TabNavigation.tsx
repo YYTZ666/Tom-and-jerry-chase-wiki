@@ -203,9 +203,10 @@ export default function TabNavigation({ showDetailToggle = false }: TabNavigatio
   const overflowTabs = [...items.slice(0, startIndex), ...items.slice(startIndex + visibleCount)];
 
   const tabMinWidthClass = 'min-w-[40px]';
-  const homeButtonSizing = clsx('min-w-[40px]', !isCompactMode && 'lg:min-w-fit');
+  const tabButtonClassName =
+    'h-10 min-h-0 px-1 md:h-11 md:gap-1 md:px-2 md:text-base lg:text-[17px]';
   const tabIconWrapperClassName = clsx(
-    'flex size-6 items-center justify-center overflow-hidden md:size-7',
+    'flex size-7 items-center justify-center overflow-hidden md:size-8',
     isCompactMode && 'shrink-0'
   );
   const shouldAlignLeft = showDetailToggle || !!nickname;
@@ -224,7 +225,7 @@ export default function TabNavigation({ showDetailToggle = false }: TabNavigatio
               className={clsx(
                 getNavigationButtonClasses(isNavigatingTo('/'), isHomeActive(), false, true),
                 'relative',
-                homeButtonSizing
+                tabMinWidthClass
               )}
               aria-label='首页'
               tabIndex={isNavigatingTo('/') ? -1 : 0}
@@ -239,9 +240,8 @@ export default function TabNavigation({ showDetailToggle = false }: TabNavigatio
                   transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
                 />
               )}
-              <HomeIcon className='size-6 lg:hidden' />
-              <span className='hidden lg:inline'>首页</span>
-              <span className='sr-only lg:hidden'>首页</span>
+              <HomeIcon className='size-6' />
+              <span className='sr-only'>首页</span>
             </MotionLink>
           </Tooltip>
           {primaryTabs.map((entry) => {
@@ -260,7 +260,7 @@ export default function TabNavigation({ showDetailToggle = false }: TabNavigatio
                       aria-haspopup='true'
                       className={clsx(
                         getNavigationButtonClasses(false, isGroupActive || isGroupOpen, false),
-                        'gap-0 md:gap-1 lg:gap-2',
+                        tabButtonClassName,
                         tabMinWidthClass
                       )}
                       onClick={() => {
@@ -273,10 +273,10 @@ export default function TabNavigation({ showDetailToggle = false }: TabNavigatio
                       {!!image && (
                         <Image
                           src={entry.iconSrc || image.iconSrc}
-                          alt={entry.iconAlt || image.iconAlt}
+                          alt={entry.iconAlt ?? image.iconAlt}
                           width={64}
                           height={64}
-                          className='h-6 w-6 shrink-0 object-contain'
+                          className='h-7 w-7 shrink-0 object-contain md:h-8 md:w-8'
                         />
                       )}
                       <span className='hidden md:inline'>{entry.label}</span>
@@ -346,7 +346,7 @@ export default function TabNavigation({ showDetailToggle = false }: TabNavigatio
                       false,
                       true
                     ),
-                    'gap-0 md:gap-1 lg:gap-2',
+                    tabButtonClassName,
                     tabMinWidthClass
                   )}
                   aria-label={tab.label}
@@ -497,7 +497,7 @@ export default function TabNavigation({ showDetailToggle = false }: TabNavigatio
                 aria-label={isDetailedView ? '切换至简明描述' : '切换至详细描述'}
                 className={clsx(
                   'relative flex min-h-10 cursor-pointer rounded-lg border-none bg-gray-100 p-1 transition-all duration-200',
-                  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500',
+                  'focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-blue-500',
                   'md:min-h-11 dark:border-gray-600 dark:bg-slate-800 dark:focus-visible:outline-blue-300'
                 )}
                 onClick={() => {

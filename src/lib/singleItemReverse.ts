@@ -1,3 +1,4 @@
+import { autoWrapNames } from '@/data/autoWrapNames';
 import { FactionId, SingleItem, SingleItemTypeName } from '@/data/types';
 import {
   achievements,
@@ -235,19 +236,6 @@ export interface CategorizedKeywords {
 
 // Helper function to get all reverse strings for highlighting
 export function getCategorizedKeywords(singleItem: SingleItem): CategorizedKeywords {
-  const nameBlacklist = [
-    '破墙',
-    '捕鼠夹',
-    '爪刀',
-    '迅',
-    '三叉戟',
-    '绝地反击',
-    '追风',
-    '兔子',
-    '大表哥',
-    '相助',
-  ];
-
   const getSingleItemAliases = (singleItem: SingleItem): string[] => {
     let R: string[] | undefined;
     if (singleItem.type == 'character') {
@@ -300,10 +288,7 @@ export function getCategorizedKeywords(singleItem: SingleItem): CategorizedKeywo
 
   // Get original name keywords
   let originalKeywords: string[] = [];
-  if (
-    ['character', 'card'].includes(singleItem.type) &&
-    !nameBlacklist.some((string) => singleItem.name.includes(string))
-  ) {
+  if (autoWrapNames.some((string) => singleItem.name.includes(string))) {
     originalKeywords = [singleItem.name];
   } else {
     originalKeywords = addBracket([singleItem.name], singleItem.type, singleItem.factionId);
@@ -325,12 +310,6 @@ export function getCategorizedKeywords(singleItem: SingleItem): CategorizedKeywo
     groupKeywords: groupKeywordBrackets,
     allKeywords,
   };
-}
-
-// Backward compatibility function
-export function getReverseStrings(singleItem: SingleItem): string[] {
-  const { allKeywords } = getCategorizedKeywords(singleItem);
-  return allKeywords;
 }
 
 export default function singleItemRreverse(
@@ -493,7 +472,7 @@ export default function singleItemRreverse(
 
   const ModeResult = Object.values(modes)
     .filter((a) => {
-      return [a?.description, a?.detailedDescription]
+      return [a?.description, a?.detailedDescription, a?.rules, a?.detailedRules]
         .filter((d): d is string => d != null)
         .some((d) => allKeywords.some((string) => d.includes(string)));
     })

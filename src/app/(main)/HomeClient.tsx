@@ -7,6 +7,7 @@ import { useMobile } from '@/hooks/useMediaQuery';
 import { useUser } from '@/hooks/useUser';
 import { isNavGroup, NAV_ITEMS, NavItem } from '@/constants/navigation';
 import ChangeLogs, { ChangeLogsRef } from '@/components/ui/ChangeLogs';
+import ExternalLinksDisplay from '@/components/ui/ExternalLinksDisplay';
 import FactionButton from '@/components/ui/FactionButton';
 import FeedbackSection, { FeedbackSectionRef } from '@/components/ui/FeedbackSection';
 import HomePageSection from '@/components/ui/NavSection';
@@ -61,7 +62,7 @@ export default function HomeContentClient({ description, hasServiceKey }: Props)
   };
 
   return (
-    <div className='space-y-8'>
+    <div className='space-y-6'>
       <header className='space-y-2 text-center'>
         <PageTitle>猫和老鼠手游wiki</PageTitle>
         <PageDescription>{description}</PageDescription>
@@ -74,13 +75,13 @@ export default function HomeContentClient({ description, hasServiceKey }: Props)
       })}
 
       {/* Division line before 网站说明 */}
-      <div className='mt-24 px-2 sm:px-4'>
+      <div className='mt-12 px-2 sm:mt-18 sm:px-4 md:mt-24'>
         <div className='mx-auto max-w-4xl'>
           <div className='h-px w-full bg-gray-300 dark:bg-gray-700'></div>
         </div>
       </div>
 
-      <div className='mt-8 px-2 text-center sm:px-4'>
+      <div className='mt-6 px-2 text-center sm:mt-8 sm:px-4'>
         <h2
           className='mb-2 py-2 text-3xl font-bold dark:text-white'
           onDoubleClick={handleDoubleClick}
@@ -91,7 +92,7 @@ export default function HomeContentClient({ description, hasServiceKey }: Props)
           <ProjectStatement onFeedbackClick={() => feedbackSectionRef.current?.openFeedback()} />
         </div>
         <VersionDisplay />
-        <div className='mt-6 flex flex-wrap justify-center gap-4'>
+        <div className='mt-4 flex flex-wrap justify-center gap-4 sm:mt-6'>
           <FeedbackSection ref={feedbackSectionRef} />
           <ChangeLogs ref={changeLogsRef} />
           <div>
@@ -106,15 +107,18 @@ export default function HomeContentClient({ description, hasServiceKey }: Props)
           </div>
         </div>
 
-        <div className='mt-12 px-2 sm:px-4'>
+        <div className='mt-8 px-2 sm:mt-10 sm:px-4 md:mt-12'>
           <div className='mx-auto max-w-4xl'>
             <div className='h-px w-full bg-gray-300 dark:bg-gray-700'></div>
           </div>
         </div>
 
-        <div className='mt-8'>
-          <h2 className='mb-6 text-2xl font-bold dark:text-white'>站点列表</h2>
+        <div className='mt-6 sm:mt-8'>
+          <h2 className='mb-6 text-3xl font-bold dark:text-white'>站点列表</h2>
           <OfficialSitesDisplay />
+          <div className='mt-10'>
+            <ExternalLinksDisplay />
+          </div>
         </div>
       </div>
 

@@ -2,7 +2,12 @@ import { useMemo } from 'react';
 
 import { getTypeLabelColors } from '@/lib/design';
 import singleItemRreverse, { getCategorizedKeywords } from '@/lib/singleItemReverse';
-import { getSingleItemHref, getSingleItemImageUrl } from '@/lib/singleItemTools';
+import {
+  getFactionLabel,
+  getSingleItemHref,
+  getSingleItemImageUrl,
+  getSingleItemOwnerSuffix,
+} from '@/lib/singleItemTools';
 import { useMobile } from '@/hooks/useMediaQuery';
 import { useDarkMode } from '@/context/DarkModeContext';
 import {
@@ -61,6 +66,8 @@ function ReverseResultButton({
   }
 
   const buttonColors = getButtonColors();
+  const ownerSuffix = getSingleItemOwnerSuffix(result);
+  const factionLabel = getFactionLabel(result.factionId);
 
   // Helper function to highlight matched keywords in text with priority
   const highlightKeywords = (text: string): React.ReactNode => {
@@ -131,14 +138,14 @@ function ReverseResultButton({
     <li className='w-full'>
       <a
         href={getSingleItemHref(result)}
-        className='flex w-full items-start rounded-lg border-1 border-dotted p-1.5 transition-all hover:-translate-y-1'
+        className='flex w-full items-start rounded-lg p-2 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md'
         style={{
           borderColor: buttonColors.color,
           backgroundColor: buttonColors.backgroundColor,
         }}
       >
         {/* Image on the left */}
-        <div className='mr-2 flex-shrink-0'>
+        <div className='mr-2 shrink-0'>
           <Image
             src={getSingleItemImageUrl(result)}
             alt={`${result.name}图标`}
@@ -153,20 +160,27 @@ function ReverseResultButton({
           {/* Top row: name and tags */}
           <div className='mb-1 flex items-center justify-between'>
             {/* Object name */}
-            <div className='mr-2 flex-1 truncate font-medium text-gray-900 dark:text-white'>
-              {highlightKeywords(result.name)}
+            <div className='mr-2 flex flex-1 items-baseline gap-1.5 overflow-hidden'>
+              <span className='truncate font-medium text-gray-900 dark:text-white'>
+                {highlightKeywords(result.name)}
+              </span>
+              {ownerSuffix ? (
+                <span className='shrink-0 text-xs whitespace-nowrap text-gray-500 dark:text-gray-400'>
+                  {ownerSuffix}
+                </span>
+              ) : null}
             </div>
 
             {/* Type and faction tags */}
-            <div className='flex flex-shrink-0 items-center gap-2'>
-              <span className='rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-300'>
+            <div className='flex shrink-0 items-center'>
+              <span className='rounded-md bg-white/70 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-slate-800/80 dark:text-gray-300'>
                 {SingleItemTypeChineseNameList[result.type]}
               </span>
-              {result.factionId && (
-                <span className='rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-300'>
-                  {result.factionId === 'cat' ? '猫' : '鼠'}
+              {factionLabel ? (
+                <span className='rounded-md bg-white/70 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-slate-800/80 dark:text-gray-300'>
+                  {factionLabel}
                 </span>
-              )}
+              ) : null}
             </div>
           </div>
 

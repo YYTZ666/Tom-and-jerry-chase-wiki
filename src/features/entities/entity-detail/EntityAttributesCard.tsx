@@ -3,6 +3,7 @@
 import { useSnapshot } from 'valtio';
 
 import { getEntityTypeColors } from '@/lib/design';
+import { getSingleItemPrototype, getSingleItemVariant } from '@/lib/singleItemTools';
 import { getTooltipContent } from '@/lib/tooltipUtils';
 import { useAppContext } from '@/context/AppContext';
 import { useDarkMode } from '@/context/DarkModeContext';
@@ -36,28 +37,26 @@ export default function EntityAttributesCard({ entity }: { entity: Entity }) {
     isEditMode ? (entitiesSnapshot[entityName] ?? entity) : entity
   ) as Entity;
 
+  /* 计算variant相关内容 */
+  const prototype = getSingleItemPrototype({ name: entity.name, type: 'entity' });
+  const variant = getSingleItemVariant({ name: entity.name, type: 'entity' });
+  /* -------- */
+
   const collisionOptions = ['角色', '道具', '墙壁', '平台', '地面'] as const;
   const activeCollision = Array.isArray(effectiveEntity?.collsion) ? effectiveEntity.collsion : [];
 
   const factionId = getEntityFactionId(entity);
 
-  function putTypeTagOn(currentEntity: Entity) {
-    if (typeof currentEntity.entitytype === 'string') {
+  function putTypeTagOn(currentEntity: Entity, mode: 'type' | 'tag' = 'type') {
+    const tags = mode === 'tag' ? currentEntity.entitytag : currentEntity.entitytype;
+    if (typeof tags === 'string') {
       return (
-        <Tag
-          size='sm'
-          margin='compact'
-          colorStyles={getEntityTypeColors(currentEntity.entitytype, isDarkMode)}
-        >
-          <ed.span
-            path='entitytype'
-            initialValue={currentEntity.entitytype ?? '<无内容>'}
-            isSingleLine
-          />
+        <Tag size='sm' margin='compact' colorStyles={getEntityTypeColors(tags, isDarkMode)}>
+          <ed.span path='entitytype' initialValue={tags ?? '<无内容>'} isSingleLine />
         </Tag>
       );
     } else {
-      return currentEntity.entitytype.map((type) => {
+      return tags.map((type) => {
         return (
           <Tag
             size='sm'
@@ -128,7 +127,11 @@ export default function EntityAttributesCard({ entity }: { entity: Entity }) {
         <>
           <div className='flex flex-wrap items-center gap-1 text-sm font-normal'>
             <span className='text-sm whitespace-pre'>类型: </span>
-            {putTypeTagOn(effectiveEntity)}
+            {putTypeTagOn(effectiveEntity, 'type')}
+          </div>
+          <div className='flex flex-wrap items-center gap-1 text-sm font-normal'>
+            <span className='text-sm whitespace-pre'>标签: </span>
+            {putTypeTagOn(effectiveEntity, 'tag')}
           </div>
           {effectiveEntity.owner && (
             <div className='flex items-center gap-2 text-sm'>
@@ -355,6 +358,26 @@ export default function EntityAttributesCard({ entity }: { entity: Entity }) {
                   </>
                 )}
               </div>
+            </div>
+          )}
+          {(prototype.length > 0 || variant.length > 0) && (
+            <div className='border-t border-gray-300 pt-1 dark:border-gray-600'>
+              {prototype.length > 0 && (
+                <div>
+                  <span className='text-lg font-bold whitespace-pre'>本内容为以下内容的变种：</span>
+                  <div className='mt-1'>
+                    <SingleItemAccordionCard items={prototype} />
+                  </div>
+                </div>
+              )}
+              {variant.length > 0 && (
+                <div className={prototype.length > 0 ? 'mt-2' : ''}>
+                  <span className='text-lg font-bold whitespace-pre'>本内容有以下变种：</span>
+                  <div className='mt-1'>
+                    <SingleItemAccordionCard items={variant} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>
